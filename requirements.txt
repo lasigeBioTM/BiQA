@@ -1,0 +1,14 @@
+json_lines
+merpy
+sklearn
+#pytorch-pretrained-bert 
+fuzzywuzzy[speedup]
+pandas
+beautifulsoup4
+StackAPI
+matplotlib
+spacy
+requests
+https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-2.1.0/en_core_web_lg-2.1.0.tar.gz#egg=en_core_web_lg
+lxml
+praw
