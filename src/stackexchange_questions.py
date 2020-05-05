@@ -43,7 +43,7 @@ def retrieve_questions(sitename):
     :rtype: list 
 
     """
-    sitename = sitename.split("/")[-1]
+    # sitename = sitename.split("/")[-1]
     if request_query:
         SITE = StackAPI(sitename, key=params["se_key"])
         SITE.page_size = 50
@@ -219,9 +219,10 @@ def main():
     # sitename = "se_biology/biology"
     # sitename = "se_medicalsciences/medicalsciences"
     sitename = sys.argv[1]
-    outputdir = sitename + "/" + params["version"]
+    outputdir = "se/" + sitename + "/"
     if not os.path.exists(outputdir):
         os.makedirs(outputdir)
+    outputdir += params["version"]
     print("retrieving questions from ", sitename)
     q_items = retrieve_questions(sitename)
     # q_items = q_items[:50]
