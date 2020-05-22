@@ -19,6 +19,7 @@ import praw
 
 
 from pubmed import get_doc_text
+from qas import calculate_semantic_similarity
 
 """
 This script is used to re-process a corpus in CSV format that has been manually
@@ -62,12 +63,13 @@ def get_answer(aid):
 
 
 def get_reddit_post(qid):
-    if qid in cache:
+    if qid in cache and "score" in cache[qid]:
         return cache[qid]
     else:
         submission = reddit.submission(id=qid)
         q_object = {
-            "body": submission.selftext.replace("<img", "<a").replace("<hr>", "")
+            "body": submission.selftext.replace("<img", "<a").replace("<hr>", ""),
+            "score": submission.score
         }
         cache[qid] = q_object
         return q_object
@@ -168,6 +170,18 @@ def generate_q_text(row, use_title, use_body, use_answer, filename, idx):
     return qtext
 
 
+def get_question_score(row, filename, idx):
+    if "reddit" not in filename:
+        q_object = get_se_question(row[idx["qid_index"]])
+    else:
+        q_object = get_reddit_post(row[idx["qid_index"]])
+    if not q_object:
+        # print("no body", row[idx["qid_index"]])
+        return 0
+    return q_object["score"]
+
+
+
 def process_csv_file(
     origin_file, dest_name, min_a_score, min_a_count, use_title, use_body, use_answer
 ):
@@ -202,7 +216,7 @@ def process_csv_file(
     # CSV corpus
     corpus_file = csv.writer(docs_f)
     corpus_file.writerow(
-        ["query_id", "answer_id", "query_text", "answer_score", "pmid"]
+        ["question_id", "answer_id", "question_text", "question_score", "pmid", "pmtitle"]
     )
     csv_lines = []
 
@@ -241,6 +255,9 @@ def process_csv_file(
             qtext = generate_q_text(
                 r, use_title, use_body, use_answer, origin_file, idx
             )
+
+            qscore = get_question_score(r, origin_file, idx)
+            #print(qscore)
 
             if qid not in qs:
                 # AUEB system format
@@ -298,9 +315,10 @@ def process_csv_file(
                                 qid,
                                 aid,
                                 qtext.replace("\n", " "),
-                                r[idx["score_index"]],
+                                #r[idx["score_index"]],
+                                qscore,
                                 doc_id,
-                                doc_text,
+                                doc_text[0],
                             ]
                         )
 
@@ -339,6 +357,7 @@ def process_csv_file(
         pickle.dump(final_dic, f)
 
     print_counters(counters)
+    return csv_lines
 
 
 def print_counters(counters):
@@ -440,7 +459,7 @@ def main():
         dest_name += "_answer"
 
     print("processing ", args.file)
-    process_csv_file(
+    csv_lines = process_csv_file(
         args.file,
         dest_name,
         args.min_a_score,
@@ -454,6 +473,7 @@ def main():
         with open(cache_file, "w") as f:
             json.dump(cache, f)
 
+    calculate_semantic_similarity(csv_lines)
 
 if __name__ == "__main__":
     main()
