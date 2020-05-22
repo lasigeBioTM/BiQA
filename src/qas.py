@@ -7,7 +7,12 @@ import requests
 import urllib.parse
 import json
 import re
+from random import sample   
+from tqdm import tqdm
+import spacy
 
+# Load English tokenizer, tagger, parser, NER and word vectors
+nlp = spacy.load("en_vectors_web_lg")
 
 """
 Helper functions for QA post retrieval and processing.
@@ -57,6 +62,41 @@ q_cols = ["qid", "score", "q_title", "q_body"]
 numerical_cols = ["score", "nlinks", "npubmeds"]
 binary_cols = ["accepted", "hasquote"]
 text_cols = ["q_title", "q_body", "a_text"]
+
+
+def calculate_semantic_similarity(csvlines):
+    """
+    csv columns: qid, aid, qtext, score, docid, doctext
+    """
+    sim_values = []
+    random_sim_values = []
+    for i, line in enumerate(tqdm(csvlines)):
+        if line[5][0] == "":
+            continue
+        doc1 = nlp(line[2])
+        doc2 = nlp(line[5][0])
+        sim_values.append(doc1.similarity(doc2))
+        random_lines = sample(csvlines, 1)
+        for irandom in range(1):
+            while True:
+                if random_lines[irandom][0] == line[0] or random_lines[irandom][5][0] == "":
+                    random_lines[irandom] = sample(csvlines,1)[0]
+                else:
+                    break
+        for r in random_lines:
+            doc3 = nlp(r[5][0])
+            random_sim_values.append(doc1.similarity(doc3))
+        if i % 500 == 0:
+            print(line[2], line[5][0])
+            print(sum(sim_values)/len(sim_values))
+            print(sum(random_sim_values)/len(random_sim_values))
+
+    print(sum(sim_values)/len(sim_values))
+    print(sum(random_sim_values)/len(random_sim_values))
+    with open("sim_scores.csv", 'w') as scoresfile:
+        scoresfile.write("\n".join([str(s) for s in sim_values]) + "\n")
+    with open("random_sim_scores.csv", 'w') as scoresfile:
+        scoresfile.write("\n".join([str(s) for s in random_sim_values]) + "\n")
 
 
 def write_aueb_pickle(q_table, a_table, q_a, sitename):
@@ -139,7 +179,18 @@ def show_output(q_table, a_table, q_a, sitename):
             "links",
         ]
     )
-    quotes_file = "{}_quotes.csv"
+    quotes_file =  csv.writer(open("{}_quotes.csv".format(sitename), "w"))
+    quotes_file.writerow(
+        [
+            "qid",
+            "aid",
+            "accepted",
+            "score",
+            "q_title",
+            "a_text",
+            "links",
+        ]
+    )
     print(
         """<!DOCTYPE html>
     <html>
@@ -195,6 +246,18 @@ def show_output(q_table, a_table, q_a, sitename):
                         str(r["npubmeds"]),
                         str(q_table.loc[q_table["qid"] == q]["q_title"].values[0]),
                         str(r["a_text"][:50]).replace("\n", " "),
+                        link,
+                    ]
+                )
+                if r["hasquote"]:
+                    quotes_file.writerow(
+                    [
+                        str(q),
+                        str(r["aid"]),
+                        str(r["accepted"]),
+                        str(r["score"]),
+                        str(q_table.loc[q_table["qid"] == q]["q_title"].values[0]),
+                        str(r["a_text"]).replace("\n", " "),
                         link,
                     ]
                 )
