@@ -48,6 +48,7 @@ def process_comment(comment, submission):
             "q_body": submission.selftext,
             "a_body": a_text,
         }
+        
 
         # print(all_links)
         # else:
@@ -72,8 +73,8 @@ def process_comment(comment, submission):
 
 
 def get_reddit_questions_pushshift(sitename, min_answer_count=1, min_q_score=1):
-    page_size = 100
-    base_url = "https://api.pushshift.io/reddit/search/submission/?size={}&sort_type=score&subreddit={}"
+    page_size = 1000
+    base_url = "https://api.pushshift.io/reddit/search/submission/?size={}&sort_type=created_utc&subreddit={}"
     base_url = base_url.format(str(page_size), sitename)
     reddit = praw.Reddit(params["toolname"])
 
@@ -84,12 +85,12 @@ def get_reddit_questions_pushshift(sitename, min_answer_count=1, min_q_score=1):
     q_a = {}
 
     question_items = []
-    last_score = 0
+    last_date = 0
     total_retrieved = 0
     iteration = 1
     while total_retrieved < 50000:
         if total_retrieved > 0:
-            url = base_url + "&score=<{}".format(str(last_score))
+            url = base_url + "&before={}".format(str(last_date))
         else:
             url = base_url
         print(iteration, url)
@@ -97,11 +98,13 @@ def get_reddit_questions_pushshift(sitename, min_answer_count=1, min_q_score=1):
         reddit_posts = result.json()
         if len(reddit_posts["data"]) == 0:
             break
-        last_score = reddit_posts["data"][-1]["score"]
+        #last_score = reddit_posts["data"][-1]["score"]
+
+        last_date = reddit_posts["data"][-1]["created_utc"]
         total_retrieved += len(reddit_posts["data"])
         print(
             reddit_posts["data"][0]["title"],
-            last_score,
+            last_date,
             total_retrieved,
             len(question_items),
         )
@@ -117,6 +120,7 @@ def get_reddit_questions_pushshift(sitename, min_answer_count=1, min_q_score=1):
             if "?" in new_question["title"] or "?" in new_question["body"]:
                 # retrieve submission using PRAW to get answers
                 submission = reddit.submission(id=new_question["question_id"])
+                
                 q_a[submission.id] = []
                 q_table = q_table.append(
                     {
@@ -133,6 +137,7 @@ def get_reddit_questions_pushshift(sitename, min_answer_count=1, min_q_score=1):
                 # get answers
 
                 # print(submission.num_comments)
+                submission.comments.replace_more(limit=0)
                 for comment in submission.comments:
 
                     pubmed_qa_object, a_object = process_comment(comment, submission)
