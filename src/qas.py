@@ -10,6 +10,7 @@ import re
 from random import sample   
 from tqdm import tqdm
 import spacy
+import numpy as np
 
 # Load English tokenizer, tagger, parser, NER and word vectors
 nlp = spacy.load("en_vectors_web_lg")
@@ -33,8 +34,9 @@ if os.path.isfile(cache_file):
     # logging.info("loaded cache dictionary with %s entries", str(len(pm_cache)))
 else:
     pm_cache = {}
+    pm_cache["None"] = set()
     loadedcache = False
-    # logging.info("new cache dictionary")
+    print("new pmid cache")
 
 
 def exit_handler():
@@ -71,28 +73,48 @@ def calculate_semantic_similarity(csvlines):
     sim_values = []
     random_sim_values = []
     for i, line in enumerate(tqdm(csvlines)):
-        if line[5][0] == "":
+        #print("this line", line)
+        if len(line) <5:
+            print("line:", line)
+            break
+        if line[5].strip() == "":
             continue
         doc1 = nlp(line[2])
-        doc2 = nlp(line[5][0])
+        doc2 = nlp(line[5])
+        if not doc1.vector_norm or not doc2.vector_norm:
+            continue
         sim_values.append(doc1.similarity(doc2))
-        random_lines = sample(csvlines, 1)
-        for irandom in range(1):
+        
+        #print("random lines", random_lines)
+        random_compare = 1
+        random_lines = sample(csvlines, random_compare)
+        for irandom in range(random_compare):
             while True:
-                if random_lines[irandom][0] == line[0] or random_lines[irandom][5][0] == "":
+                if len(random_lines[irandom]) < 5  or \
+                    random_lines[irandom][0] == line[0] or \
+                    random_lines[irandom][5].strip() == "":
+                    #print(len(random_lines[irandom]), random_lines[irandom][0], line[0]) #, random_lines[irandom][5])
+                    #print("not using this random", irandom, random_lines[irandom])
                     random_lines[irandom] = sample(csvlines,1)[0]
                 else:
                     break
         for r in random_lines:
-            doc3 = nlp(r[5][0])
+            doc3 = nlp(r[5])
+            if not doc3.vector_norm:
+                continue
             random_sim_values.append(doc1.similarity(doc3))
         if i % 500 == 0:
-            print(line[2], line[5][0])
+            print(line[2], line[5])
             print(sum(sim_values)/len(sim_values))
             print(sum(random_sim_values)/len(random_sim_values))
-
-    print(sum(sim_values)/len(sim_values))
-    print(sum(random_sim_values)/len(random_sim_values))
+    print()
+    print("qa size", len(sim_values))
+    print("qa average:", np.mean(sim_values))
+    print("qa std", np.std(sim_values))
+    print()
+    print("qrandom size", len(random_sim_values))
+    print("qrandom average:", np.mean(random_sim_values))
+    print("qrandom std", np.std(random_sim_values))
     with open("sim_scores.csv", 'w') as scoresfile:
         scoresfile.write("\n".join([str(s) for s in sim_values]) + "\n")
     with open("random_sim_scores.csv", 'w') as scoresfile:
@@ -344,7 +366,7 @@ def print_stats(q_table, a_table):
     print("As with pubmeds", len(pubmed_as[pubmed_as == True].index), file=sys.stderr)
 
 
-def normalize_pmid(url):
+def normalize_pmid(url, revisit_missing=True):
     """Convert various URLs to PMID using NCBI ID converter API
 
     Sometimes the PubMed URL has the title words instead of the PMID so we also have to 
@@ -375,8 +397,10 @@ def normalize_pmid(url):
     global pm_cache
     if url in pm_cache:
         return pm_cache[url]
-    if url in pm_cache["None"]:
+    elif url in pm_cache["None"] and not revisit_missing:
         return None
+    #elif revisit_missing is False:
+    #    return None
     url_converter = "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/?tool={}&email={}&ids={}&format=json"
     pmsearch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={}&api_key={}&format=json"
     if (
@@ -385,8 +409,19 @@ def normalize_pmid(url):
     ):  # links to PMC or PubMed homepage
         pm_cache["None"].add(url)
         return None
-    if "pmc" in url:
-        pmcid = url.split("/")[5][:10]
+    print(url)
+    if "pmc" in url and "pmid" not in url and "?term=" not in url and "cmd=search" not in url.lower():
+        #print(url)
+        # http://europepmc.org/backend/ptpmcrender.fcgi?accid=pmc1208485&blobtype=pdf
+        # https://europepmc.org/article/pmc/pmc1208485
+        #pmcid = url.split("/")[5][:10]
+        #pmcid = "pmc" + url.split("pmc")[-1][:7]
+        match = re.search(r"pmc([0-9]+)", url)
+        #print(url, match, match.group(0))
+        if match is None:
+            pm_cache["None"].add(url)
+            return None
+        pmcid = match.group(0)
         # pmcid = pmcid.split("/")[0]
         try:
             result = requests.get(
@@ -405,7 +440,6 @@ def normalize_pmid(url):
             pm_cache["None"].add(url)
             return None
         pmid = result["records"][0]["pmid"]
-        pm_cache[url] = pmid
     elif ("pubmed" in url or "pmc" in url) and (
         "?term=" in url or "cmd=search" in url.lower()
     ):
@@ -421,7 +455,6 @@ def normalize_pmid(url):
             return None
         pmid = result["esearchresult"]["idlist"][0]
         # print("cmd/term search", url, pmid)
-        pm_cache[url] = pmid
     elif "doi.org" in url:
         doi = "/".join(url.split("/")[3:])
         result = requests.get(
@@ -456,22 +489,18 @@ def normalize_pmid(url):
                 pm_cache["None"].add(url)
                 return None
             pmid = result["esearchresult"]["idlist"][0]
-            pm_cache[url] = pmid
             # print("mapped doi with pm api", url, doi, pmid)
         else:
             pmid = result["records"][0]["pmid"]
             # print("mapped doi with id converter api", url, doi, pmid)
-            pm_cache[url] = pmid
     elif "linkname=" in url.lower():
         pmid = url.split("=")[-1]
         # print("linkname=", url, pmid)
     elif "cmd=retrieve" in url.lower():
         match = re.search(r"([0-9]{8})", url)
         pmid = match.group()
-
     elif "/m/pubmed" in url.lower():
         pmid = url.split("/")[5]
-        pm_cache[url] = pmid
 
     elif "artid=" in url.lower():
         pmcid = url.split("artid=")[-1].split("&")[0]
@@ -480,7 +509,7 @@ def normalize_pmid(url):
         )
         result = response.text
         pmid = result.split("pmid=")[-1].split(" ")[0]
-        pm_cache[url] = pmid
+
 
     elif "accid=" in url.lower():
         pmcid = url.split("accid=")[-1].split("&")[0]
@@ -489,7 +518,7 @@ def normalize_pmid(url):
         )
         result = response.text
         pmid = result.split("pmid=")[-1].split(" ")[0]
-        pm_cache[url] = pmid
+
 
     elif "pmid=" in url.lower():
         pmid = url.split("pmid=")[-1]
@@ -503,16 +532,29 @@ def normalize_pmid(url):
         response = r.text
         if "<pubmed-id>" in response:
             pmid = response.split("<pubmed-id>")[-1].split("</pubmed-id>")[0]
-            pm_cache[url] = pmid
         else:
             pm_cache["None"].add(url)
             return None
 
     elif "researchgate" in url.lower():
         title = "+".join(url.lower().split("/")[-1].split("_")[1:])
-        r = requests.get(pmsearch_url.format(title + "[title]"), params["pubmed_api"])
-        pmid = r.text.split("<Id>")[-1].split("</Id>")[0]
-        pm_cache[url] = pmid
+        result = requests.get(pmsearch_url.format(title + "[title]", params["pubmed_api"]))
+        #pmid = r.text.split("<Id>")[-1].split("</Id>")[0]
+        try:
+            result = result.json()
+        except json.decoder.JSONDecodeError:
+            print(result)
+            print(url)
+            return None
+        if not result["esearchresult"]["idlist"]:
+            #print("ERROR")
+            # print(doi)
+            #print(url)
+            #print(result)
+            pm_cache["None"].add(url)
+            return None
+        pmid = result["esearchresult"]["idlist"][0]
+
 
     elif (
         "imgur" in url.lower()
@@ -538,4 +580,6 @@ def normalize_pmid(url):
 
     pmid = "".join([i for i in pmid if i.isdigit()])
     # pmid = "http://www.ncbi.nlm.nih.gov/pubmed/" + pmid
+    print(pmid)
+    pm_cache[url] = pmid
     return pmid

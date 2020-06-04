@@ -183,7 +183,7 @@ def get_question_score(row, filename, idx):
 
 
 def process_csv_file(
-    origin_file, dest_name, min_a_score, min_a_count, use_title, use_body, use_answer
+    origin_file, dest_name, min_a_score, min_a_count, use_title, use_body, use_answer, slowmode=True
 ):
     """write CSV corpus with filters applied based on another CSV file with only 
     links mapped to pubmed.
@@ -294,11 +294,7 @@ def process_csv_file(
                     if len(clean_link) < 5:  # DOIs can have parenthesis
                         clean_link = l
                     # print(l, clean_link)
-                    try:
-                        doc_id = normalize_pmid(clean_link)
-                    except:
-                        print("not mapped", clean_link)
-                        continue
+                    doc_id = normalize_pmid(clean_link, revisit_missing=slowmode)
                     # print(l, doc_id)
                     if doc_id is None:
                         continue
@@ -390,8 +386,9 @@ def print_counters(counters):
         "avg pubmeds per A",
         sum(counters["a_pubmed_counts"].values()) / len(counters["a_pubmed_counts"]),
     )
-    # print("#total links", Counter(a_pubmed_counts.values()))
-    """print()
+    
+    #print("#total links", Counter(a_pubmed_counts.values()))
+    print()
     print("#pubmed links count table")
     counts = Counter(counters["a_pubmed_counts"].values())
     for i in range(min(counts.keys()), max(counts.keys()) + 1):
@@ -400,7 +397,8 @@ def print_counters(counters):
     print("scores dist count table")
     counts = Counter(counters["a_scores"].values())
     for i in range(min(counts.keys()), max(counts.keys()) + 1):
-        print(i, counts.get(i, 0))"""
+        print(i, counts.get(i, 0))
+
     print(
         "average A score",
         sum(counters["a_scores"].values()) / len(counters["a_scores"].values()),
@@ -467,12 +465,13 @@ def main():
         args.title_text,
         args.body_text,
         args.answer_text,
+        slowmode=False
     )
 
     if "reddit" in args.file:
         with open(cache_file, "w") as f:
             json.dump(cache, f)
-
+    #print(csv_lines)
     calculate_semantic_similarity(csv_lines)
 
 if __name__ == "__main__":
