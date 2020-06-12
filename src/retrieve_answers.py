@@ -6,9 +6,10 @@ import time
 import requests
 import json
 import subprocess
-
+import atexit
 import unicodedata
 import html
+import multiprocessing
 
 from tqdm import tqdm
 import spacy
@@ -27,6 +28,7 @@ import numpy as np
 from sklearn.metrics import average_precision_score
 
 from pubmed import get_doc_text
+from galago import get_doc_text_galago
 
 """
 Evaluate document retrieval systems on the corpora generated.
@@ -39,7 +41,8 @@ PubMed API requires API key stored in params.json
 nlp = spacy.load("en_core_web_lg")
 
 
-def process_search_results(ret_docs, aueb_dic):
+
+def process_search_results(ret_docs, aueb_dic, get_doc_set=False, use_mp=True):
     """Process document retrieval files to be used by AUEB system
 
     Update counts of each query, retrieve documents full text 
@@ -60,6 +63,7 @@ def process_search_results(ret_docs, aueb_dic):
         qid = str(r["query_id"])
         if qid not in ret_docs:
             print("qid not found", qid, file=sys.stderr)
+            print(list(ret_docs.keys())[:10], qid, type(qid))
             continue
 
         #### debug #####
@@ -132,13 +136,16 @@ def process_search_results(ret_docs, aueb_dic):
     print(len(new_aueb_dic["queries"]))
     print(len(new_aueb_dic["queries"]) - no_rel_ret_count)
 
-    docset = get_doc_set_info(ret_docs, new_aueb_dic)
-    # docset = None
+    if get_doc_set:
+        docset = get_doc_set_info(ret_docs, new_aueb_dic, use_mp=use_mp)
+    else:
+        docset = None
     return new_aueb_dic, docset, bioasqjson
 
 
-def get_doc_set_info(pmids_per_q, aueb_dic):
+def get_doc_set_info(pmids_per_q, aueb_dic, use_mp=True):
     """ Return dic with pmid -> {doc_id: title, abstract}
+    Either use a cache, or run with multiprocessing
 
     :param pmids_per_q: Dictionary with all question and respective PMIDs
     :type pmids_per_q: dict
@@ -150,17 +157,42 @@ def get_doc_set_info(pmids_per_q, aueb_dic):
     all_pmids = []
     for q in pmids_per_q:
         all_pmids += pmids_per_q[q].keys()
-    all_pmids = set(all_pmids)
+    all_pmids = all_pmids
+    print("retrieving doc text")
+    if not use_mp:
+        for pmid in tqdm(all_pmids):
+            doc_object = get_doc_object(pmid)
+            doc_set[str(pmid)] = doc_object
+            #print("not using cache", pmid, type(pmid), doc_cache[int(pmid)])
+    else:
+        with multiprocessing.Pool(processes=20) as pool:
+            doc_objects = pool.map(get_doc_object, all_pmids)
+
+            for i, doc in enumerate(doc_objects):
+                doc_set[str(all_pmids[i])] = doc
+
     for pmid in all_pmids:
-        doc_info = get_doc_text(pmid)
-        if doc_info is not None:
-            doc_set[str(pmid)] = {
-                "title": doc_info[0],
-                "abstractText": doc_info[1],
-                "publicationDate": "1950-01-01",
-            }
+        if doc_set.get(str(pmid), None) is None:
+            if str(pmid) in doc_set:
+                del doc_set[str(pmid)]
+
 
     return doc_set
+
+
+def get_doc_object(pmid):
+    doc_info = get_doc_text(pmid)
+    #doc_info = get_doc_text_galago(pmid)
+    if doc_info is not None:
+        doc_object = {
+            "title": doc_info[0],
+            "abstractText": doc_info[1],
+            "publicationDate": "1950-01-01",
+        }
+        return doc_object
+    else:
+        return None
+
 
 
 def average_precision(ret_doc, rel_doc, max_items=10):
@@ -276,67 +308,73 @@ def main():
     # choose topk documents from query results
     topk = 100
 
+    get_doc_set = False
+    use_mp = True
+
     limit_queries = None
     # max number of queries to perform (ignore the other qs)
-    # limit_queries = 10
+    #limit_queries = 100
     # could be either number of list
     # limit_queries = ["3448"]
 
     # use galago or pubmed to retrieve documents
-    if retrieval_engine == "galago":
+    if retrieval_engine.startswith("galago"):
 
         from galago import get_pmids_galago
-
-        galago_ret_docs = get_pmids_galago(data, n=topk, limit_queries=limit_queries)
-        data, docset, bioasqjson = process_search_results(galago_ret_docs, data)
+        if retrieval_engine.endswith("bm25"):
+            galago_ret_docs = get_pmids_galago(data, n=topk, bm25=True, limit_queries=limit_queries)
+        else:
+            galago_ret_docs = get_pmids_galago(data, n=topk, bm25=False, limit_queries=limit_queries)
+        data, docset, bioasqjson = process_search_results(galago_ret_docs, data, get_doc_set, use_mp)
     elif retrieval_engine == "pubmed":  # use pubmed
         from pubmed import get_pubmeds_for_questions
 
         pubmed_ret_docs = get_pubmeds_for_questions(
             data, n_docs=topk, limit_queries=limit_queries
         )
-        data, docset, bioasqjson = process_search_results(pubmed_ret_docs, data)
+        data, docset, bioasqjson = process_search_results(pubmed_ret_docs, data,  get_doc_set, use_mp)
     elif retrieval_engine == "drqa":
         from drqa_retriever import get_pmids_drqa
 
         drqa_ret_docs = get_pmids_drqa(data, n=topk, limit_queries=limit_queries)
-        data, docset, bioasqjson = process_search_results(drqa_ret_docs, data)
+        data, docset, bioasqjson = process_search_results(drqa_ret_docs, data, get_doc_set, use_mp)
     elif retrieval_engine == "elasticsearch":
         import esearch
 
         esearch_ret_docs = esearch.get_pubmeds_for_questions(
             data, n=topk, limit_queries=limit_queries
         )
-        data, docset, bioasqjson = process_search_results(esearch_ret_docs, data)
+        data, docset, bioasqjson = process_search_results(esearch_ret_docs, data, get_doc_set, use_mp)
     # print(data)
     scores, data = calculate_scores(data, topk)
     print(sys.argv[1:], scores)
 
     # write_data = False
+    if len(sys.argv) > 3:
+        bm25_data_path_train = os.path.join(sys.argv[3] + ".top{0}.pacrr.pkl".format(topk))
+        docset_path_train = os.path.join(
+            sys.argv[3] + ".docset_top{0}.pacrr.pkl".format(topk)
+        )
 
-    bm25_data_path_train = os.path.join(sys.argv[3] + ".top{0}.pacrr.pkl".format(topk))
-    docset_path_train = os.path.join(
-        sys.argv[3] + ".docset_top{0}.pacrr.pkl".format(topk)
-    )
+        # check if all ret PMIDs are in docset
+        if get_doc_set:
+            for q in data["queries"]:
+                for doc in q["retrieved_documents"]:
+                    if str(doc["doc_id"]) not in docset:
+                        print("doc id not in docset!", doc["doc_id"])
+                        print(list(docset.keys())[:10])
 
-    # check if all ret PMIDs are in docset
-    for q in data["queries"]:
-        for doc in q["retrieved_documents"]:
-            if str(doc["doc_id"]) not in docset:
-                print("doc id not in docset!", doc["doc_id"])
-                print(list(docset.keys())[:10])
+        with open(bm25_data_path_train, "wb") as f:
+            data_train = pickle.dump(data, f)
 
-    with open(bm25_data_path_train, "wb") as f:
-        data_train = pickle.dump(data, f)
+        with open(docset_path_train, "wb") as f:
+            docset_train = pickle.dump(docset, f)
 
-    with open(docset_path_train, "wb") as f:
-        docset_train = pickle.dump(docset, f)
+        with open(sys.argv[3] + ".qrel.json", "w") as f:
+            json.dump(bioasqjson, f)
 
-    with open(sys.argv[3] + ".qrel.json", "w") as f:
-        json.dump(bioasqjson, f)
-
-    # with open(sys.argv[1] + ".pubmed", "wb") as f:
-    #    pickle.dump(data, f)
+        # with open(sys.argv[1] + ".pubmed", "wb") as f:
+        #    pickle.dump(data, f)
 
 
 if __name__ == "__main__":

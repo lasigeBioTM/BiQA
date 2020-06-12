@@ -388,7 +388,7 @@ def print_counters(counters):
     )
     
     #print("#total links", Counter(a_pubmed_counts.values()))
-    print()
+    """print()
     print("#pubmed links count table")
     counts = Counter(counters["a_pubmed_counts"].values())
     for i in range(min(counts.keys()), max(counts.keys()) + 1):
@@ -398,7 +398,7 @@ def print_counters(counters):
     counts = Counter(counters["a_scores"].values())
     for i in range(min(counts.keys()), max(counts.keys()) + 1):
         print(i, counts.get(i, 0))
-
+    """
     print(
         "average A score",
         sum(counters["a_scores"].values()) / len(counters["a_scores"].values()),
