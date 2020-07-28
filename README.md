@@ -1,6 +1,6 @@
-# SciQA corpus
+# BiQA ☕
 
-This repository contains the code used to generate the SciQA corpus from online forums.
+This repository contains the code used to generate the BiQA corpus from online forums.
 We also include v1 of the corpus.
 
 ## Getting started
