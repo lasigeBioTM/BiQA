@@ -3,6 +3,10 @@
 This repository contains the code used to generate the BiQA corpus from online forums.
 We also include v1 of the corpus.
 
+### Publication
+
+A. Lamurias, D. Sousa and F. M. Couto, "Generating Biomedical Question Answering Corpora From Q&A Forums," in IEEE Access, vol. 8, pp. 161042-161051, 2020, doi:[https://doi.org/10.1109/ACCESS.2020.3020868](url).
+
 ## Getting started
 
 We first retrieve Q&As from StackExchange and Reddit communities using the 
