@@ -5,7 +5,7 @@ We also include v1 of the corpus.
 
 ### Publication
 
-A. Lamurias, D. Sousa and F. M. Couto, "Generating Biomedical Question Answering Corpora From Q&A Forums," in IEEE Access, vol. 8, pp. 161042-161051, 2020, doi:[https://doi.org/10.1109/ACCESS.2020.3020868](url).
+A. Lamurias, D. Sousa and F. M. Couto, "Generating Biomedical Question Answering Corpora From Q&A Forums," in IEEE Access, vol. 8, pp. 161042-161051, 2020, doi:[10.1109/ACCESS.2020.3020868](https://doi.org/10.1109/ACCESS.2020.3020868).
 
 ## Getting started
 
